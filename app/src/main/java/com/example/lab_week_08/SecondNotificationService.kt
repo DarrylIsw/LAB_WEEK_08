@@ -10,11 +10,11 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.*
 
-class NotificationService : Service() {
+class SecondNotificationService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-    private val channelId = "countdown_channel"
-    private val completionChannelId = "completion_channel"
+    private val channelId = "second_countdown_channel"
+    private val completionChannelId = "second_completion_channel"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -26,14 +26,12 @@ class NotificationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val id = intent?.getStringExtra(EXTRA_ID)
-        if (id != null) {
-            serviceScope.launch { startCountdown(id) }
-        }
+        if (id != null) serviceScope.launch { startCountdown(id) }
         return START_NOT_STICKY
     }
 
     private suspend fun startCountdown(id: String) {
-        val notificationManager = NotificationManagerCompat.from(this)
+        val manager = NotificationManagerCompat.from(this)
         val notifId = getNotifId(id)
 
         val builder = NotificationCompat.Builder(this, channelId)
@@ -44,43 +42,36 @@ class NotificationService : Service() {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setOngoing(true)
 
-        // Foreground only for the first task
-        if (id == "001") {
-            startForeground(notifId, builder.setContentText("Starting countdown...").build())
+        if (id == "003") {
+            startForeground(notifId, builder.setContentText("Starting final countdown...").build())
         } else {
-            notificationManager.notify(notifId, builder.setContentText("Starting countdown...").build())
+            manager.notify(notifId, builder.setContentText("Starting final countdown...").build())
         }
 
-        // Countdown
         for (i in 5 downTo 0) {
             builder.setContentText("Task $id: $i seconds remaining...")
-            if (notificationsAllowed()) notificationManager.notify(notifId, builder.build())
+            if (notificationsAllowed()) manager.notify(notifId, builder.build())
             delay(1000)
         }
 
-        // Completion
         builder.setContentTitle("Worker Task $id Completed")
             .setContentText("Task $id finished successfully ✅")
             .setOngoing(false)
 
-        if (notificationsAllowed()) notificationManager.notify(notifId, builder.build())
+        if (notificationsAllowed()) manager.notify(notifId, builder.build())
 
-        // Show popup
-        showCompletionNotification(id)
+        // 🎉 Show the "All Processes Complete" notification
+        showFinalAllCompleteNotification(id)
 
-        // LiveData event
         withContext(Dispatchers.Main) { mutableID.value = id }
 
-        // Stop foreground safely
-        if (id == "001") stopForeground(STOP_FOREGROUND_REMOVE)
-
+        if (id == "003") stopForeground(STOP_FOREGROUND_REMOVE)
         delay(500)
         stopSelf()
     }
 
     private fun getNotifId(id: String): Int = when (id) {
-        "001" -> 1001
-        "002" -> 1002
+        "003" -> 1003
         else -> (System.currentTimeMillis() % 100000).toInt()
     }
 
@@ -92,33 +83,33 @@ class NotificationService : Service() {
                 else true
     }
 
-    private fun showCompletionNotification(id: String) {
+    private fun showFinalAllCompleteNotification(id: String) {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
-            this, id.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE
+            this, 9999, intent, PendingIntent.FLAG_IMMUTABLE
         )
 
-        val completionNotification = NotificationCompat.Builder(this, completionChannelId)
+        val notification = NotificationCompat.Builder(this, completionChannelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Countdown Complete!")
-            .setContentText("Worker Task $id has finished successfully ✅")
+            .setContentTitle("🎉 All Processes Complete!")
+            .setContentText("All worker tasks (001–003) have completed successfully.")
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .build()
 
         val manager = NotificationManagerCompat.from(this)
-        if (notificationsAllowed()) manager.notify(getNotifId(id), completionNotification)
+        if (notificationsAllowed()) manager.notify(9999, notification)
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Worker Countdown",
-                NotificationManager.IMPORTANCE_LOW
+                "Final Countdown Notification",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Shows progress of worker tasks"
+                description = "Displays countdown for the final worker task"
             }
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
@@ -128,10 +119,10 @@ class NotificationService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 completionChannelId,
-                "Worker Completion",
-                NotificationManager.IMPORTANCE_DEFAULT
+                "All Tasks Completion",
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Notifies when a worker task completes"
+                description = "Notifies when all processes are finished"
             }
             getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }

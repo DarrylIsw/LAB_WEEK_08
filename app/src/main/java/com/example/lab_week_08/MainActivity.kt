@@ -17,6 +17,7 @@ import androidx.work.OneTimeWorkRequest
 import androidx.work.WorkManager
 import com.example.lab_week_08.worker.FirstWorker
 import com.example.lab_week_08.worker.SecondWorker
+import com.example.lab_week_08.worker.ThirdWorker
 
 class MainActivity : AppCompatActivity() {
 
@@ -31,7 +32,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-        // ✅ Step 1: Request Notification Permission (Android 13+)
+        // Request Notification Permission (Android 13+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
@@ -43,34 +44,41 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // ✅ Step 2: Setup WorkManager Chain
+        // WorkManager chain + network constraints
         val workManager = WorkManager.getInstance(this)
         val networkConstraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val id = "001"
-
+        // ✅ pass unique ids to each worker so they can behave independently
         val firstRequest = OneTimeWorkRequest.Builder(FirstWorker::class.java)
             .setConstraints(networkConstraints)
-            .setInputData(getIdInputData(FirstWorker.INPUT_DATA_ID, id))
+            .setInputData(getIdInputData(FirstWorker.INPUT_DATA_ID, "001"))
             .build()
 
         val secondRequest = OneTimeWorkRequest.Builder(SecondWorker::class.java)
             .setConstraints(networkConstraints)
-            .setInputData(getIdInputData(SecondWorker.INPUT_DATA_ID, id))
+            .setInputData(getIdInputData(SecondWorker.INPUT_DATA_ID, "002"))
             .build()
 
+        val thirdRequest = OneTimeWorkRequest.Builder(ThirdWorker::class.java)
+            .setConstraints(networkConstraints)
+            .setInputData(getIdInputData(ThirdWorker.INPUT_DATA_ID, "003"))
+            .build()
+
+        // Chain the workers: First -> Second -> Third
         workManager.beginWith(firstRequest)
             .then(secondRequest)
+            .then(thirdRequest)
             .enqueue()
 
-        // ✅ Step 3: Observe both workers
+        // Observe and launch services when appropriate
         workManager.getWorkInfoByIdLiveData(firstRequest.id)
             .observe(this) { info ->
                 if (info.state.isFinished) {
                     showResult("First process is done")
-                    launchNotificationService("001")
+                    // If you want NotificationService for 001, you can launch here.
+                    // launchNotificationService("001")
                 }
             }
 
@@ -78,7 +86,17 @@ class MainActivity : AppCompatActivity() {
             .observe(this) { info ->
                 if (info.state.isFinished) {
                     showResult("Second process is done")
+                    // Launch NotificationService for 002 — startService (not startForegroundService)
                     launchNotificationService("002")
+                }
+            }
+
+        workManager.getWorkInfoByIdLiveData(thirdRequest.id)
+            .observe(this) { info ->
+                if (info.state.isFinished) {
+                    showResult("Third process is done")
+                    // Launch SecondNotificationService for 003 — this one uses foreground behavior
+                    launchSecondNotificationService("003")
                 }
             }
     }
@@ -91,12 +109,41 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * ✅ Launches the custom NotificationService and observes its completion LiveData.
+     * Launch NotificationService for the given id.
+     * Use startForegroundService ONLY for ids that will call startForeground() (like "001").
+     * For other ids, use startService so system does not require startForeground().
      */
     private fun launchNotificationService(id: String) {
         val intent = Intent(this, NotificationService::class.java)
         intent.putExtra(NotificationService.EXTRA_ID, id)
-        ContextCompat.startForegroundService(this, intent)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Only startForegroundService for ids that call startForeground in your service
+            if (id == "001") {
+                ContextCompat.startForegroundService(this, intent)
+            } else {
+                // for "002" use regular startService (Activity is foreground here)
+                startService(intent)
+            }
+        } else {
+            // pre-O: startService is fine
+            startService(intent)
+        }
+    }
+
+    /**
+     * Launch SecondNotificationService for the given id.
+     * This service does call startForeground when id == "003", so use startForegroundService.
+     */
+    private fun launchSecondNotificationService(id: String) {
+        val intent = Intent(this, SecondNotificationService::class.java)
+        intent.putExtra(SecondNotificationService.EXTRA_ID, id)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.startForegroundService(this, intent)
+        } else {
+            startService(intent)
+        }
     }
 
     companion object {
